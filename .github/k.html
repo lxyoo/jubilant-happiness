@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rock+Salt&family=Foldit&family=Jersey+10&family=Englebert&family=Codystar&family=Hi+Melody&family=Indie+Flower&=swap" rel="stylesheet">
+    <title>Drawing Website with Undo and Redo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: #333; /* Dark background for a modern look */
+            font-family: 'Codystar', sans-serif;
+            cursor: crosshair;
+            color: #fff; /* White text for contrast */
+        }
+
+        button {
+            font-family: 'Rock Salt', sans-serif;
+            background-color: #007bff; /* Blue background color */
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 10px; /* Adjusted padding for smaller buttons */
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #0056b3; /* Darker blue on hover */
+        }
+
+        /* Additional styles for other elements and toolbar */
+        /* You can customize these further based on your design preferences */
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background-color: #444; /* Darker toolbar background */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .toolbar button.active {
+            background-color: #0056b3; /* Active button color */
+        }
+
+        .toolbar input[type="color"] {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .toolbar input[type="range"] {
+            width: 100px;
+            cursor: pointer;
+        }
+
+        #canvasContainer {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid #ccc;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin: 20px;
+            border-radius: 10px;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        .magnifying-glass {
+            display: none;
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border: 2px solid #000;
+            border-radius: 50%;
+            overflow: hidden;
+            background-color: rgba(255, 255, 255, 0.8);
+            pointer-events: none;
+        }
+
+        .magnified-image {
+            display: block;
+            width: 200px;
+            height: 200px;
+            transform-origin: 0 0;
+            transform: scale(2);
+            transition: transform 0.2s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="toolbar">
+        <button id="pen1" class="active">Pen</button>
+        <button id="pencil">Pencil</button>
+        <button id="lineArtPen">Line Art Pen</button>
+        <button id="weightedPen">Weighted Pen</button>
+        <button id="rainbowPen">Rainbow Pen</button>
+        <button id="eraser">Eraser</button>
+        <input type="color" id="colorPicker" value="#000000">
+        <label for="sizeRange">Size:</label>
+        <input type="range" id="sizeRange" min="1" max="20" value="3">
+        <button id="undo">Undo</button>
+        <button id="redo">Redo</button>
+        <button id="magnifyBtn">Magnify</button>
+        <button id="clearBtn">Clear</button>
+    </div>
+
+    <div id="canvasContainer">
+        <canvas id="canvas"></canvas>
+        <div class="magnifying-glass">
+            <img class="magnified-image" src="" alt="Magnified Image">
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        let isDrawing = false;
+        let penStyle = 'pen1';
+        let penColor = '#000000';
+        let lastX = 0;
+        let lastY = 0;
+        let lineWidth = 3; // Default line width
+        let eraserMode = false;
+        let drawingHistory = [];
+        let currentStep = -1;
+
+        // Initialize magnifying glass and image
+        const magnifyingGlass = document.querySelector('.magnifying-glass');
+        const magnifiedImage = magnifyingGlass.querySelector('.magnified-image');
+
+        // Set up magnifying glass size and position
+        const magnifierSize = 100; // Magnifying glass size
+        const magnifierRadius = magnifierSize / 2;
+        magnifyingGlass.style.width = `${magnifierSize}px`;
+        magnifyingGlass.style.height = `${magnifierSize}px`;
+
+        resizeCanvas();
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - document.querySelector('.toolbar').offsetHeight;
+        }
+
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.clientX, e.clientY - canvas.getBoundingClientRect().top];
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            if (eraserMode) {
+                ctx.strokeStyle = '#fff'; // Set the color to white for erasing
+                ctx.lineWidth = lineWidth;
+            } else if (penStyle === 'rainbowPen') {
+                ctx.strokeStyle = getRandomColor(); // Get a random color for rainbow pen
+                ctx.lineWidth = lineWidth;
+            } else {
+                ctx.strokeStyle = penColor;
+                ctx.lineWidth = lineWidth;
+            }
+            ctx.lineCap = 'round'; // Set line cap to round for smoother lines
+            ctx.lineJoin = 'round';
+            ctx.lineTo(e.clientX, e.clientY - canvas.getBoundingClientRect().top);
+            ctx.stroke();
+            [lastX, lastY] = [e.clientX, e.clientY - canvas.getBoundingClientRect().top];
+
+            // Save the drawn step in the history for undo/redo
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            if (currentStep < drawingHistory.length - 1) {
+                drawingHistory = drawingHistory.slice(0, currentStep + 1);
+            }
+            drawingHistory.push(imageData);
+            currentStep++;
+            updateUndoRedoButtons();
+        }
+
+        function endDrawing() {
+            isDrawing = false;
+        }
+
+        function changePenStyle(style) {
+            document.querySelectorAll('.toolbar button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(style).classList.add('active');
+            penStyle = style;
+            switch (penStyle) {
+                case 'pen1':
+                    lineWidth = document.getElementById('sizeRange').value;
+                    eraserMode = false;
+                    break;
+                case 'pencil':
+                    lineWidth = document.getElementById('sizeRange').value / 2; // Set a smaller lineWidth for pencil effect
+                    eraserMode = false;
+                    break;
+                case 'lineArtPen':
+                    lineWidth = document.getElementById('sizeRange').value * 2; // Set a larger lineWidth for line art pen
+                    eraserMode = false;
+                    break;
+                case 'weightedPen':
+                    lineWidth = document.getElementById('sizeRange').value * 3; // Set an even larger lineWidth for weighted pen
+                    eraserMode = false;
+                    break;
+                case 'rainbowPen':
+                    eraserMode = false;
+                    break;
+                case 'eraser':
+                    eraserMode = true;
+                    break;
+                default:
+                    lineWidth = 3;
+                    eraserMode = false;
+                    break;
+            }
+        }
+
+        document.getElementById('pen1').addEventListener('click', () => changePenStyle('pen1'));
+        document.getElementById('pencil').addEventListener('click', () => changePenStyle('pencil'));
+        document.getElementById('lineArtPen').addEventListener('click', () => changePenStyle('lineArtPen'));
+        document.getElementById('weightedPen').addEventListener('click', () => changePenStyle('weightedPen'));
+        document.getElementById('rainbowPen').addEventListener('click', () => changePenStyle('rainbowPen'));
+        document.getElementById('eraser').addEventListener('click', () => changePenStyle('eraser'));
+
+        document.getElementById('colorPicker').addEventListener('change', (e) => {
+            penColor = e.target.value;
+        });
+
+        document.getElementById('sizeRange').addEventListener('input', (e) => {
+            lineWidth = e.target.value;
+        });
+
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', endDrawing);
+        canvas.addEventListener('mouseout', endDrawing);
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                if (e.shiftKey) {
+                    // Redo (Ctrl/Cmd + Shift + Z)
+                    document.getElementById('redo').click();
+                } else {
+                    // Undo (Ctrl/Cmd + Z)
+                    document.getElementById('undo').click();
+                }
+            }
+        });
+
+        // Undo button
+        document.getElementById('undo').addEventListener('click', () => {
+            if (currentStep > 0) {
+                currentStep--;
+                ctx.putImageData(drawingHistory[currentStep], 0, 0);
+                updateUndoRedoButtons();
+            }
+        });
+
+        // Redo button
+        document.getElementById('redo').addEventListener('click', () => {
+            if (currentStep < drawingHistory.length - 1) {
+                currentStep++;
+                ctx.putImageData(drawingHistory[currentStep], 0, 0);
+                updateUndoRedoButtons();
+            }
+        });
+
+        // Magnify button
+        const magnifyBtn = document.getElementById('magnifyBtn');
+        magnifyBtn.addEventListener('click', () => {
+            if (magnifyingGlass.style.display === 'none') {
+                magnifyBtn.textContent = 'Hide Magnifier';
+                magnifyingGlass.style.display = 'block';
+            } else {
+                magnifyBtn.textContent = 'Magnify';
+                magnifyingGlass.style.display = 'none';
+            }
+        });
+
+        // Clear button
+        const clearBtn = document.getElementById('clearBtn');
+        clearBtn.addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawingHistory = [];
+            currentStep = -1;
+            updateUndoRedoButtons();
+        });
+
+        function updateUndoRedoButtons() {
+            document.getElementById('undo').disabled = currentStep <= 0;
+            document.getElementById('redo').disabled = currentStep >= drawingHistory.length - 1;
+        }
+
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+    </script>
+</body>
+
+</html>
